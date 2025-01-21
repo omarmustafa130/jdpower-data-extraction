@@ -38,10 +38,11 @@ def main():
         print("1. Generate initial dataset (makes and years only)")
         print("2. Generate full dataset without reviews")
         print("3. Generate full dataset with reviews")
-        print("4. Setup environment")
-        print("5. Exit")
+        print("4. Generate reviews only")  
+        print("5. Setup environment")
+        print("6. Exit")
 
-        choice = input("Enter your choice (1-5): ")
+        choice = input("Enter your choice (1-6): ")
 
         if choice == "1":
             run_script("generate_initial_dataset.py")
@@ -66,11 +67,18 @@ def main():
                     print("Invalid choice. Skipping review generation.")
             else:
                 print("Invalid choice. Skipping dataset generation.")
-        elif choice == "4":
-            setup_environment()
+        elif choice == "4":  # New option to generate reviews only
+            review_choice = ask_vehicle_types()
+            if review_choice in ["-c", "-cr", "-crb", "-crbm", "-all"]:
+                run_script("generate_reviews.py", review_choice)
+            else:
+                print("Invalid choice. Skipping review generation.")
         elif choice == "5":
+            setup_environment()
+        elif choice == "6":
             print("Exiting...")
             break
+
         else:
             print("Invalid choice. Please try again.")
 

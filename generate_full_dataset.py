@@ -89,7 +89,7 @@ def fetch_data(selected_years, selected_types):
                         while True:
                             try:
                                 # Launch Firefox with stealth mode
-                                browser = p.firefox.launch(headless=False)
+                                browser = p.firefox.launch(headless=True)
                                 context = browser.new_context()
                                 page = context.new_page()
                                 stealth_sync(page)

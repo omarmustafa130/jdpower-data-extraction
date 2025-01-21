@@ -5,18 +5,18 @@ import time
 
 # Base URLs and their specific selectors for different vehicle types
 vehicle_types = {
-    #"cars": {
-    #    "url": "https://www.jdpower.com/cars/manufacturers",
-    #    "selector": "ul.selectMake_popularMakesList__X9qw1 li a"
-    #},
+    "cars": {
+        "url": "https://www.jdpower.com/cars/manufacturers",
+        "selector": "ul.selectMake_popularMakesList__X9qw1 li a"
+    },
     "rvs": {
         "url": "https://www.jdpower.com/rvs/manufacturers",
         "selector": "div.make-list__links a"
     },
-    #"boats": {
-    #    "url": "https://www.jdpower.com/boats/manufacturers",
-    #    "selector": "ul.selectMake_popularMakesList__5WsOW li a"
-    #},
+    "boats": {
+        "url": "https://www.jdpower.com/boats/manufacturers",
+        "selector": "ul.selectMake_popularMakesList__5WsOW li a"
+    },
     "motorcycles": {
         "url": "https://www.jdpower.com/motorcycles/manufacturers",
         "selector": "ul.selectMake_popularMakesList__5WsOW li a"

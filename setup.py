@@ -8,6 +8,7 @@ required_libraries = [
     "openpyxl",
     "playwright",
     "g4f",
+    "playwright-stealth",  # Added playwright-stealth
 ]
 
 # Install libraries
@@ -15,7 +16,6 @@ def install_libraries():
     print("Installing required libraries...")
     for library in required_libraries:
         subprocess.check_call([sys.executable, "-m", "pip", "install", library])
-
 
 # Install Playwright browsers
 def install_playwright_browsers():
@@ -29,8 +29,10 @@ def validate_installation():
         # Check if libraries are installed
         for library in required_libraries:
             __import__(library)
-        # Check playwright-stealth
-        print("All required libraries are successfully installed.")
+
+        # Check playwright-stealth specifically
+        from playwright_stealth import stealth_sync
+        print("All required libraries, including stealth_sync, are successfully installed.")
     except ImportError as e:
         print(f"Error during validation: {e}")
         sys.exit(1)
@@ -38,7 +40,6 @@ def validate_installation():
 # Main setup function
 def main():
     install_libraries()
-    
     install_playwright_browsers()
     validate_installation()
 
