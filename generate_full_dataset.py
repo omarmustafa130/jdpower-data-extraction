@@ -284,7 +284,6 @@ def fetch_data(selected_years, selected_types):
     print(f"Data saved to {output_xlsx}.")
 
 
-# Parse command-line arguments
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Scrape vehicle data from JDPower.")
     parser.add_argument(
@@ -297,6 +296,7 @@ def parse_arguments():
     parser.add_argument("-r", action="store_true", help="Process data for RVs")
     parser.add_argument("-b", action="store_true", help="Process data for boats")
     parser.add_argument("-m", action="store_true", help="Process data for motorcycles")
+    parser.add_argument("-all", action="store_true", help="Process data for all vehicle types")
 
     args = parser.parse_args()
 
@@ -307,17 +307,20 @@ def parse_arguments():
         selected_years = [args.years]
 
     selected_types = []
-    if args.c:
-        selected_types.append("cars")
-    if args.r:
-        selected_types.append("rvs")
-    if args.b:
-        selected_types.append("boats")
-    if args.m:
-        selected_types.append("motorcycles")
+    if args.all:  # If -all is specified, process all vehicle types
+        selected_types = ["cars", "rvs", "boats", "motorcycles"]
+    else:
+        if args.c:
+            selected_types.append("cars")
+        if args.r:
+            selected_types.append("rvs")
+        if args.b:
+            selected_types.append("boats")
+        if args.m:
+            selected_types.append("motorcycles")
 
     if not selected_types:
-        print("No vehicle types selected. Use -c, -r, -b, -m or combinations.")
+        print("No vehicle types selected. Use -c, -r, -b, -m, or -all.")
         sys.exit(1)
 
     return selected_years, selected_types

@@ -27,7 +27,7 @@ def validate_installation():
     print("\nValidating installations...\n")
     try:
         # Check if libraries are installed
-        for library in required_libraries:
+        for library in required_libraries[:-1]:
             __import__(library)
 
         # Check playwright-stealth specifically
