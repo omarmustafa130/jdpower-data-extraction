@@ -19,9 +19,24 @@ output_folder = 'output_blurbs'
 client = Client()
 
 # Function to generate a review using G4F API
-def generate_review(year, make, model, trim):
-    prompt = (f"Write a simple (max 150 word) review on {year} {make} {model} {trim} and only include these letters "
-              "(english only):(abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ 1234567890.?\"-!,:&;()'/)")
+def generate_review(year, make, model, trim=None, **details):
+    # Filter out N/A or unknown values
+    filtered_details = {k: v for k, v in details.items() if v.lower() not in ["n/a", "unknown", "unknown length", "unknown model type", "unknown hull", "unknown ccs", "unknown engines", "unknown hp", "unknown weight", "unknown fuel type"]}
+
+    # Create the prompt based on available details
+    if trim:
+        prompt = f"Write a simple (max 150 word) review on {year} {make} {model} {trim}."
+    else:
+        prompt = f"Write a detailed review (max 150 words) for the {year} {make} {model}."
+
+    # Add filtered details to the prompt
+    if filtered_details:
+        details_str = ", ".join([f"{k}: {v}" for k, v in filtered_details.items()])
+        prompt += f" It has the following features: {details_str}."
+
+    prompt += " Highlight its key features, performance, and suitability for different activities."
+
+    # Generate the review
     response = client.chat.completions.create(
         model="gpt-3.5-turbo",
         messages=[{"role": "user", "content": prompt}]
@@ -43,13 +58,21 @@ def process_sheets(selected_sheets):
         print(f"Processing sheet: {sheet_name}")
         sheet = workbook[sheet_name]
         df = pd.DataFrame(sheet.values)
-        df.columns = df.iloc[0]  # Use the first row as column headers
+
+        # Check if the sheet has data
+        if df.empty:
+            print(f"No data found in sheet: {sheet_name}. Skipping...")
+            continue
+
+        # Use the first row as column headers
+        df.columns = df.iloc[0]
         df = df[1:]  # Skip the header row
 
-        # Rename Review column to Blurb or add it if not present
-        if 'Review' in df.columns:
-            df.rename(columns={'Review': 'Blurb'}, inplace=True)
-        elif 'Blurb' not in df.columns:
+        # Determine if this is the boats sheet
+        is_boats = sheet_name.lower() == "boats"
+
+        # Add a Blurb column if it doesn't exist
+        if 'Blurb' not in df.columns:
             df['Blurb'] = ''
 
         # Output CSV file for the current sheet
@@ -77,32 +100,45 @@ def process_sheets(selected_sheets):
                     year = row.get('Year', 'unknown year')
                     make = row.get('Make', 'unknown make')
                     model = row.get('Model', 'unknown model')
-                    trim = row.get('Trim', 'unknown trim')
 
-                    while True:
-                        try:
-                            review = generate_review(year, make, model, trim)
-                            print(f"Generated review: {review}")
+                    if is_boats:
+                        # For boats, use additional details in the review
+                        details = {
+                            "Length": row.get('Length', 'unknown length'),
+                            "Model Type": row.get('Model Type', 'unknown model type'),
+                            "Hull": row.get('Hull', 'unknown hull'),
+                            "CC's": row.get("CC's", 'unknown CCs'),
+                            "Engine(s)": row.get('Engine(s)', 'unknown engines'),
+                            "HP": row.get('HP', 'unknown HP'),
+                            "Weight (lbs)": row.get('Weight (lbs)', 'unknown weight'),
+                            "Fuel Type": row.get('Fuel Type', 'unknown fuel type')
+                        }
+                        review = generate_review(year, make, model, **details)
+                    else:
+                        # For other vehicle types, use the standard review generation
+                        trim = row.get('Trim', 'unknown trim')
+                        review = generate_review(year, make, model, trim)
 
-                            # Validate review for allowed characters
-                            if all(ch in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ 1234567890.-!,:&;()'/" for ch in review):
-                                row['Blurb'] = review
-                                # Write the row to the CSV, ensuring the review is in a single cell
-                                row_data = [str(val) if i != 'Blurb' else f'"{review}"' for i, val in row.items()]
-                                f.write(','.join(row_data) + '\n')
-                                print(f"Blurb added for {make} {model} {trim}: {review}")
-                                break
-                            else:
-                                print(f"Invalid characters found. Retrying blurb for {make} {model} {trim}.")
-                                continue
-                        except Exception as retry_error:
-                            print(f"Retrying due to error: {retry_error}")
-                            continue
+                    print(f"Generated review: {review}")
+
+                    # Validate review for allowed characters
+                    if all(ch in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ 1234567890.-!,:&;()'/" for ch in review):
+                        row['Blurb'] = review
+                        # Write the row to the CSV, ensuring the review is in a single cell
+                        row_data = [str(val) if i != 'Blurb' else f'"{review}"' for i, val in row.items()]
+                        f.write(','.join(row_data) + '\n')
+                        print(f"Blurb added for {make} {model}: {review}")
+                        break
+                    else:
+                        print(f"Invalid characters found. Retrying blurb for {make} {model}.")
+                        continue
+                except Exception as retry_error:
+                    print(f"Retrying due to error: {retry_error}")
+                    continue
                 except Exception as e:
                     print(f"Error generating blurb for row {index}: {str(e)}")
                     continue
 
-# Main function
 def main():
     parser = argparse.ArgumentParser(description="Generate vehicle reviews.")
     parser.add_argument(
@@ -117,7 +153,17 @@ def main():
     parser.add_argument(
         "-m", action="store_true", help="Generate reviews for Motorcycles"
     )
+    parser.add_argument(
+        "-all", action="store_true", help="Generate reviews for all vehicle types (Cars, RVs, Boats, Motorcycles)"
+    )
     args = parser.parse_args()
+
+    # If -all is provided, set all other flags to True
+    if args.all:
+        args.c = True
+        args.r = True
+        args.b = True
+        args.m = True
 
     # Map arguments to sheet names
     selected_sheets = []
@@ -132,7 +178,7 @@ def main():
 
     # Check if no arguments were provided
     if not selected_sheets:
-        print("No vehicle types selected. Use -c, -r, -b, -m or combinations.")
+        print("No vehicle types selected. Use -c, -r, -b, -m, -all or combinations.")
         sys.exit(1)
 
     # Start tracking execution time

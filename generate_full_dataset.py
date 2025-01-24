@@ -3,11 +3,10 @@ import argparse
 import os
 from playwright.sync_api import sync_playwright
 from playwright_stealth import stealth_sync
-
 from openpyxl import Workbook, load_workbook
-
 import sys
 import time
+
 # Define input and output files
 input_csv_files = {
     "cars": "initial_dataset/cars_makes_and_years.csv",
@@ -27,10 +26,10 @@ base_urls = {
 
 # Headers for different types
 headers = {
-    "cars": ["Year", "Vehicle Type", "Make", "Model", "Trim"],
-    "rvs": ["Year", "Vehicle Type", "Make", "Model", "Trim"],
-    "boats": ["Year", "Vehicle Type", "Make", "Model", "Length", "Model Type", "Hull", "CC's", "Engine(s)", "HP", "Weight (lbs)", "Fuel Type"],
-    "motorcycles": ["Year", "Vehicle Type", "Make", "Model", "Trim"],
+    "cars": ["Year", "Vehicle Type", "Make", "Model", "Trim", 'Blurb'],
+    "rvs": ["Year", "Vehicle Type", "Make", "Model", "Trim", 'Blurb'],
+    "boats": ["Year", "Vehicle Type", "Make", "Model", "Length", "Model Type", "Hull", "CC's", "Engine(s)", "HP", "Weight (lbs)", "Fuel Type", 'Blurb'],
+    "motorcycles": ["Year", "Vehicle Type", "Make", "Model", "Trim", 'Blurb'],
 }
 
 
@@ -90,14 +89,13 @@ def fetch_data(selected_years, selected_types):
                             try:
                                 # Launch Firefox with stealth mode
                                 browser = p.firefox.launch(headless=True)
-                                context = browser.new_context()
+                                context = browser.new_context(viewport=None)  # Set viewport to None to maximize the window
                                 page = context.new_page()
                                 stealth_sync(page)
 
                                 print(make_url)
 
-
-                                page.goto(make_url, timeout=30000)
+                                page.goto(make_url, timeout=60000)
                                 time.sleep(5)
                                 # Wait for the page to load completely
                                 break
@@ -143,7 +141,6 @@ def fetch_data(selected_years, selected_types):
                                             if trim_element and current_model:
                                                 trim_name = trim_element.inner_text().strip()
                                                 print(f"Found trim: {trim_name} for model: {current_model}")
-
                                                 # Append to the XLSX sheet
                                                 sheet_map[vehicle_type].append(
                                                     [year, vehicle_type, make, current_model, trim_name]
@@ -151,14 +148,14 @@ def fetch_data(selected_years, selected_types):
                                                 workbook.save(output_xlsx)  # Save the workbook after every row
                                 elif vehicle_type == "cars":
                                     # General handling for cars
-                                    page.wait_for_selector(".yearMake_model-wrapper__t8GAv", timeout=10000)
+                                    #page.wait_for_selector(".yearMake_model-wrapper__t8GAv", timeout=10000)
 
                                     # Get all model names
                                     model_elements = page.query_selector_all(".yearMake_model-wrapper-h3__npC2B h3")
                                     for model_element in model_elements:
                                         model_name = model_element.inner_text().strip()
                                         print(f"Fetching trims for model: {model_name} ({vehicle_type})...")
-
+                                        
                                         
                                         while True:
                                             with context.expect_page() as new_tab_event:
@@ -190,9 +187,7 @@ def fetch_data(selected_years, selected_types):
 
                                                     for trim_link in trim_links:
                                                         trim_name = trim_link.inner_text().strip()
-                                                        trim_href = trim_link.get_attribute("href")
-                                                        print(f"Model: {model_name}, Trim: {trim_name}")
-
+                                                        print(f"Model: {model_name}, Trim: {trim_name}")                                                        
                                                         # Append to the XLSX sheet
                                                         sheet_map[vehicle_type].append([year, vehicle_type, make, model_name, trim_name])
 
@@ -231,9 +226,12 @@ def fetch_data(selected_years, selected_types):
                                             boat_data.insert(0, make)
                                             boat_data.insert(0, vehicle_type)
                                             boat_data.insert(0, year)
+                                            
+                                            
                                             if count == 1:
                                                 count+=1
                                                 continue
+
                                             # Append the row to the sheet
                                             sheet_map[vehicle_type].append(boat_data)
 
@@ -263,8 +261,8 @@ def fetch_data(selected_years, selected_types):
                                         for trim_element in trims:
                                             trim_name = trim_element.inner_text().strip()
                                             print(f"Found trim: {trim_name} for model: {model_name}")
-
                                             # Append the data to the corresponding sheet
+                                            rev = ''
                                             if vehicle_type in sheet_map:
                                                 sheet_map[vehicle_type].append(
                                                     [year, vehicle_type, make, model_name, trim_name]

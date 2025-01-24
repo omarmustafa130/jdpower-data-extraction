@@ -26,11 +26,8 @@ def ask_vehicle_types():
     """Prompt user to select vehicle types."""
     print("\nWhich vehicle types would you like to process?")
     print("-c: Cars")
-    print("-cr: Cars and RVs")
-    print("-crb: Cars, RVs, and Boats")
-    print("-crbm: Cars, RVs, Boats, and Motorcycles")
     print("-all: All vehicle types")
-    return input("Enter your choice (-c, -cr, -crb, -crbm, -all): ")
+    return input("Enter your choice (-c, -r, -m, -b, -all): ")
 
 def main():
     while True:
@@ -49,28 +46,55 @@ def main():
         elif choice == "2":
             year_input = input("Enter the year or range of years (e.g., 2025 or 2023-2025): ")
             vehicle_choice = ask_vehicle_types()
-            if vehicle_choice in ["-c", "-cr", "-crb", "-crbm", "-all"]:
-                run_script("generate_full_dataset.py", "--years", year_input, vehicle_choice)
+            if vehicle_choice in ["-c", "-r", '-m', '-b', "-all"]:
+                # Split the vehicle_choice into individual flags
+                flags = []
+                if "-c" in vehicle_choice or vehicle_choice == "-all":
+                    flags.append("-c")
+                if "-r" in vehicle_choice or vehicle_choice == "-all":
+                    flags.append("-r")
+                if "-b" in vehicle_choice or vehicle_choice == "-all":
+                    flags.append("-b")
+                if "-m" in vehicle_choice or vehicle_choice == "-all":
+                    flags.append("-m")
+                # Run the script with the individual flags
+                run_script("generate_full_dataset.py", "--years", year_input, *flags)
             else:
                 print("Invalid choice. Skipping dataset generation.")
         elif choice == "3":
             year_input = input("Enter the year or range of years (e.g., 2025 or 2023-2025): ")
             vehicle_choice = ask_vehicle_types()
-            if vehicle_choice in ["-c", "-cr", "-crb", "-crbm", "-all"]:
-                # Run generate_full_dataset.py first
-                run_script("generate_full_dataset.py", "--years", year_input, vehicle_choice)
-                # Then ask for review types
-                review_choice = ask_vehicle_types()
-                if review_choice in ["-c", "-cr", "-crb", "-crbm", "-all"]:
-                    run_script("generate_reviews.py", review_choice)
-                else:
-                    print("Invalid choice. Skipping review generation.")
+            if vehicle_choice in ["-c", "-r", '-m', '-b', "-all"]:
+                # Split the vehicle_choice into individual flags
+                flags = []
+                if "-c" in vehicle_choice or vehicle_choice == "-all":
+                    flags.append("-c")
+                if "-r" in vehicle_choice or vehicle_choice == "-all":
+                    flags.append("-r")
+                if "-b" in vehicle_choice or vehicle_choice == "-all":
+                    flags.append("-b")
+                if "-m" in vehicle_choice or vehicle_choice == "-all":
+                    flags.append("-m")
+                # Run the script with the individual flags
+                run_script("generate_full_dataset.py", "--years", year_input, *flags)
+                run_script("generate_reviews.py", vehicle_choice)
             else:
                 print("Invalid choice. Skipping dataset generation.")
         elif choice == "4":  # New option to generate reviews only
             review_choice = ask_vehicle_types()
-            if review_choice in ["-c", "-cr", "-crb", "-crbm", "-all"]:
-                run_script("generate_reviews.py", review_choice)
+            if vehicle_choice in ["-c", "-r", '-m', '-b', "-all"]:
+                # Split the review_choice into individual flags
+                flags = []
+                if "-c" in review_choice or review_choice == "-all":
+                    flags.append("-c")
+                if "-r" in review_choice or review_choice == "-all":
+                    flags.append("-r")
+                if "-b" in review_choice or review_choice == "-all":
+                    flags.append("-b")
+                if "-m" in review_choice or review_choice == "-all":
+                    flags.append("-m")
+                # Run the script with the individual flags
+                run_script("generate_reviews.py", *flags)
             else:
                 print("Invalid choice. Skipping review generation.")
         elif choice == "5":
@@ -78,9 +102,7 @@ def main():
         elif choice == "6":
             print("Exiting...")
             break
-
         else:
             print("Invalid choice. Please try again.")
-
 if __name__ == "__main__":
     main()
