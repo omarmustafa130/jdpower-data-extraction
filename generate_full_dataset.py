@@ -87,11 +87,14 @@ def fetch_data(selected_years, selected_types):
                         count = 0
                         while True:
                             try:
+
                                 # Launch Firefox with stealth mode
-                                browser = p.firefox.launch(headless=True)
-                                context = browser.new_context(viewport=None)  # Set viewport to None to maximize the window
+                                browser = p.firefox.launch(
+                                    headless=True
+                                )
+                                context = browser.new_context(ignore_https_errors=True)
                                 page = context.new_page()
-                                stealth_sync(page)
+                                #stealth_sync(page)
 
                                 print(make_url)
 
@@ -108,7 +111,7 @@ def fetch_data(selected_years, selected_types):
                             try:
                                 if vehicle_type == "rvs":
                                     # Wait for the RV table to load
-                                    page.wait_for_selector("table.table-enhanced--model-years", timeout=10000)
+                                    page.wait_for_selector("table.table-enhanced--model-years", timeout=30000)
 
                                     rows = page.query_selector_all("table.table-enhanced--model-years tr")
                                     current_model = None
@@ -148,7 +151,7 @@ def fetch_data(selected_years, selected_types):
                                                 workbook.save(output_xlsx)  # Save the workbook after every row
                                 elif vehicle_type == "cars":
                                     # General handling for cars
-                                    #page.wait_for_selector(".yearMake_model-wrapper__t8GAv", timeout=10000)
+                                    #page.wait_for_selector(".yearMake_model-wrapper__t8GAv", timeout=30000)
 
                                     # Get all model names
                                     model_elements = page.query_selector_all(".yearMake_model-wrapper-h3__npC2B h3")
@@ -168,7 +171,7 @@ def fetch_data(selected_years, selected_types):
                                             new_tab.wait_for_load_state()
                                             try:
                                                 # Wait for the trims section to load
-                                                new_tab.wait_for_selector(".trimSelection_card-info__O02As", timeout=10000)
+                                                new_tab.wait_for_selector(".trimSelection_card-info__O02As", timeout=30000)
 
                                                 # Locate all trim containers
                                                 trim_containers = new_tab.query_selector_all(
@@ -209,7 +212,7 @@ def fetch_data(selected_years, selected_types):
 
                                 # Handling for boats
                                 elif vehicle_type == "boats":
-                                    page.wait_for_selector(".MuiGrid-container", timeout=10000)
+                                    page.wait_for_selector(".MuiGrid-container", timeout=30000)
                                     rows = page.query_selector_all(".MuiGrid-item")
                                     count = 0
                                     for row in rows:
@@ -242,7 +245,7 @@ def fetch_data(selected_years, selected_types):
 
                                 # Handling for motorcycles
                                 elif vehicle_type == "motorcycles":
-                                    page.wait_for_selector(".spacing-xs h3.heading-s", timeout=10000)
+                                    page.wait_for_selector(".spacing-xs h3.heading-s", timeout=30000)
                                     sections = page.query_selector_all(".spacing-xs + .spacing-s")  # Select the second `.spacing-s` div
 
                                     for section in sections:
