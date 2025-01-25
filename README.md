@@ -4,7 +4,7 @@ Python scripts to extract vehicle data from JD Power using Playwright, with free
 ## Features
 * Initial Dataset Generation: Generate CSV files for cars, motorcycles, boats, and RVs with available makes and years.
 * Full Dataset Generation: Extract detailed data (Year, Make, Model, Trim, Type, Blurb).
-* Optional Review Data: Integrate reviews for each vehicle type using GPT 4 Free.
+* Optional Review Data: Integrate reviews for each vehicle type using DeepSeek-r1.
 * Automated Environment Setup: Install all required dependencies and prepare the environment with a single command.
 
 ## Prerequisites
