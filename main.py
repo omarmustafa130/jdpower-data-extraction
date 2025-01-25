@@ -82,7 +82,7 @@ def main():
                 print("Invalid choice. Skipping dataset generation.")
         elif choice == "4":  # New option to generate reviews only
             review_choice = ask_vehicle_types()
-            if vehicle_choice in ["-c", "-r", '-m', '-b', "-all"]:
+            if review_choice in ["-c", "-r", '-m', '-b', "-all"]:
                 # Split the review_choice into individual flags
                 flags = []
                 if "-c" in review_choice or review_choice == "-all":
