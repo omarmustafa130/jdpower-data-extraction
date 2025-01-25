@@ -5,7 +5,9 @@ import sys
 import os
 import time
 import asyncio
-from g4f.client import Client
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_ollama.llms import OllamaLLM
+
 
 # Set the appropriate event loop policy for Windows
 if sys.platform.startswith('win'):
@@ -15,33 +17,32 @@ if sys.platform.startswith('win'):
 input_file = 'full_dataset/vehicle_data.xlsx'
 output_folder = 'output_blurbs'
 
-# Initialize G4F client
-client = Client()
+
 
 # Function to generate a review using G4F API
-def generate_review(year, make, model, trim=None, **details):
+def generate_review(year, make, model_name, trim=None, **details):
+    template = """Question: {question}
+
+    Anser: Let's think step by step."""
+
+    prompt = ChatPromptTemplate.from_template(template)
+    model = OllamaLLM(model="deepseek-r1", base_url = "http://127.0.0.1:11434/")
+
+    chain = prompt | model
+    # Create the prompt based on available details
+    print(f"Write a simple (max 150 word) review on {year} {make} {model_name} {trim}.")
+    if trim:
+        result = chain.invoke({"question": f"Write a simple (max 150 word) review on {year} {make} {model_name} {trim}. The review should be similar in structure with the following: The 2023 Acura Integra Sedan 4D offers an excellent balance of style, reliability, and value for its price. With a sleek design that combines modern aesthetics, it captures attention while maintaining comfort and efficiency. Under the hood, it features a 1.5L turbocharged engine delivering impressive power without compromising on fuel economy. Inside, the cabin is comfortable, equipped with supportive seats and a user-friendly infotainment system, making it ideal for daily commutes or casual drives. Its overall value ensures you get high-quality performance at an accessible price point, making it a top choice for those seeking a reliable yet stylish car."})
+        result = result.split('</think>')[1]
+
+    else:
+        result = chain.invoke({"question": f"Write a simple (max 150 word) review on {year} {make} {model_name}. The review should be similar in structure with the following: The 2023 Acura Integra Sedan 4D offers an excellent balance of style, reliability, and value for its price. With a sleek design that combines modern aesthetics, it captures attention while maintaining comfort and efficiency. Under the hood, it features a 1.5L turbocharged engine delivering impressive power without compromising on fuel economy. Inside, the cabin is comfortable, equipped with supportive seats and a user-friendly infotainment system, making it ideal for daily commutes or casual drives. Its overall value ensures you get high-quality performance at an accessible price point, making it a top choice for those seeking a reliable yet stylish car."})
+
     # Filter out N/A or unknown values
     filtered_details = {k: v for k, v in details.items() if v.lower() not in ["n/a", "unknown", "unknown length", "unknown model type", "unknown hull", "unknown ccs", "unknown engines", "unknown hp", "unknown weight", "unknown fuel type"]}
 
-    # Create the prompt based on available details
-    if trim:
-        prompt = f"Write a simple (max 150 word) review on {year} {make} {model} {trim}."
-    else:
-        prompt = f"Write a detailed review (max 150 words) for the {year} {make} {model}."
 
-    # Add filtered details to the prompt
-    if filtered_details:
-        details_str = ", ".join([f"{k}: {v}" for k, v in filtered_details.items()])
-        prompt += f" It has the following features: {details_str}."
-
-    prompt += " Highlight its key features, performance, and suitability for different activities."
-
-    # Generate the review
-    response = client.chat.completions.create(
-        model="gpt-3.5-turbo",
-        messages=[{"role": "user", "content": prompt}]
-    )
-    return response.choices[0].message.content
+    return result
 
 # Function to process sheets based on the selected types
 def process_sheets(selected_sheets):
@@ -119,19 +120,14 @@ def process_sheets(selected_sheets):
                         trim = row.get('Trim', 'unknown trim')
                         review = generate_review(year, make, model, trim)
 
-                    print(f"Generated review: {review}")
+                    print(f"Generated review: {review}\n\n")
 
                     # Validate review for allowed characters
-                    if all(ch in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ 1234567890.-!,:&;()'/" for ch in review):
-                        row['Blurb'] = review
-                        # Write the row to the CSV, ensuring the review is in a single cell
-                        row_data = [str(val) if i != 'Blurb' else f'"{review}"' for i, val in row.items()]
-                        f.write(','.join(row_data) + '\n')
-                        print(f"Blurb added for {make} {model}: {review}")
-                        break
-                    else:
-                        print(f"Invalid characters found. Retrying blurb for {make} {model}.")
-                        continue
+                    row['Blurb'] = review
+                    # Write the row to the CSV, ensuring the review is in a single cell
+                    row_data = [str(val) if i != 'Blurb' else f'"{review}"' for i, val in row.items()]
+                    f.write(','.join(row_data) + '\n')
+
                 except Exception as retry_error:
                     print(f"Retrying due to error: {retry_error}")
                     continue
