@@ -1,494 +1,332 @@
 import csv
 import argparse
 import os
-import sys
-import time
-from typing import Dict, List, Tuple
-from playwright.sync_api import Page, sync_playwright
+from playwright.sync_api import sync_playwright
 from playwright_stealth import stealth_sync
 from openpyxl import Workbook, load_workbook
-import json
-from datetime import datetime
-import traceback
+import sys
+import time
 
+# Define input and output files
+input_csv_files = {
+    "cars": "initial_dataset/cars_makes_and_years.csv",
+    "rvs": "initial_dataset/rvs_makes_and_years.csv",
+    "boats": "initial_dataset/boats_makes_and_years.csv",
+    "motorcycles": "initial_dataset/motorcycles_makes_and_years.csv",
+}
+output_xlsx = "full_dataset/vehicle_data.xlsx"
 
-# Configuration
-CONFIG = {
-    "input_files": {
-        "cars": "initial_dataset/cars_makes_and_years.csv",
-        "rvs": "initial_dataset/rvs_makes_and_years.csv",
-        "boats": "initial_dataset/boats_makes_and_years.csv",
-        "motorcycles": "initial_dataset/motorcycles_makes_and_years.csv",
-    },
-    "output_file": "full_dataset/vehicle_data.xlsx",
-    "base_urls": {
-        "cars": "https://www.jdpower.com/cars/{year}/{make}",
-        "rvs": "https://www.jdpower.com/rvs/{year}/{make}",
-        "boats": "https://www.jdpower.com/boats/{year}/{make}",
-        "motorcycles": "https://www.jdpower.com/motorcycles/{year}/{make}",
-    },
-    "headers": {
-        "cars": ["Year", "Vehicle Type", "Make", "Model", "Trim", "Blurb"],
-        "rvs": ["Year", "Vehicle Type", "Make", "Model", "Trim", "Blurb"],
-        "boats": ["Year", "Vehicle Type", "Make", "Model", "Length", "Model Type", 
-                 "Hull", "CC's", "Engine(s)", "HP", "Weight (lbs)", "Fuel Type", "Blurb"],
-        "motorcycles": ["Year", "Vehicle Type", "Make", "Model", "Trim", "Blurb"],
-    }
+# Base URL patterns for different vehicle types
+base_urls = {
+    "cars": "http://www.jdpower.com/cars/{year}/{make}",
+    "rvs": "http://www.jdpower.com/rvs/{year}/{make}",
+    "boats": "http://www.jdpower.com/boats/{year}/{make}",
+    "motorcycles": "http://www.jdpower.com/motorcycles/{year}/{make}",
+}
+
+# Headers for different types
+headers = {
+    "cars": ["Year", "Vehicle Type", "Make", "Model", "Trim", 'Blurb'],
+    "rvs": ["Year", "Vehicle Type", "Make", "Model", "Trim", 'Blurb'],
+    "boats": ["Year", "Vehicle Type", "Make", "Model", "Length", "Model Type", "Hull", "CC's", "Engine(s)", "HP", "Weight (lbs)", "Fuel Type", 'Blurb'],
+    "motorcycles": ["Year", "Vehicle Type", "Make", "Model", "Trim", 'Blurb'],
 }
 
 
-class CheckpointManager:
-    def __init__(self, checkpoint_file="checkpoint.json"):
-        self.checkpoint_file = checkpoint_file
-        self.state = {
-            'current_vehicle_type': None,
-            'current_make': None,
-            'processed_years': {},
-            'error_log': []
-        }
-        self.load()
 
-    def load(self):
-        if os.path.exists(self.checkpoint_file):
-            try:
-                with open(self.checkpoint_file, 'r') as f:
-                    self.state = json.load(f)
-            except Exception as e:
-                print(f"Error loading checkpoint: {e}. Starting fresh.")
-
-    def save(self):
-        with open(self.checkpoint_file, 'w') as f:
-            json.dump(self.state, f)
-
-    def log_error(self, error_info):
-        self.state['error_log'].append({
-            'timestamp': datetime.now().isoformat(),
-            'error': error_info
-        })
-        self.save()
-
-    def update_progress(self, vehicle_type, make, year):
-        key = f"{vehicle_type}-{make}"
-        if key not in self.state['processed_years']:
-            self.state['processed_years'][key] = []
-        if year not in self.state['processed_years'][key]:
-            self.state['processed_years'][key].append(year)
-        self.save()
-
-    def should_process(self, vehicle_type, make, year):
-        key = f"{vehicle_type}-{make}"
-        return year not in self.state['processed_years'].get(key, [])
-
-class ErrorHandler:
-    @staticmethod
-    def handle_error(checkpoint, error, context=None):
-        error_info = {
-            'timestamp': datetime.now().isoformat(),
-            'error': str(error),
-            'context': context,
-            'traceback': traceback.format_exc()
-        }
-        checkpoint.log_error(error_info)
-        print(f"Error occurred: {error}")
-        print(f"Context: {context}")
-        print("Checkpoint saved. Restart script to resume.")
-
-
-class ExcelManager:
-    def __init__(self, output_path: str):
-        self.output_path = output_path
-        self.workbook = self._initialize_workbook()
-        self.sheets = {}
-
-    def _initialize_workbook(self) -> Workbook:
-        if os.path.exists(self.output_path):
-            try:
-                return load_workbook(self.output_path)
-            except Exception as e:
-                print(f"Error loading workbook: {e}. Creating new workbook.")
-        return Workbook()
-
-    def get_sheet(self, vehicle_type: str):
-        if vehicle_type not in self.sheets:
-            sheet_name = vehicle_type.capitalize()
-            if sheet_name in self.workbook.sheetnames:
-                sheet = self.workbook[sheet_name]
-            else:
-                sheet = self.workbook.create_sheet(title=sheet_name)
-                sheet.append(CONFIG["headers"][vehicle_type])
-            self.sheets[vehicle_type] = sheet
-        return self.sheets[vehicle_type]
-
-    def save(self):
-        self.workbook.save(self.output_path)
-
-class BrowserManager:
-    def __init__(self):
-        self.playwright = sync_playwright().start()
-        self.browser = self.playwright.firefox.launch(headless=True)
-        self.context = self.browser.new_context(ignore_https_errors=True)
-        self.page = self.context.new_page()
-        stealth_sync(self.page)
-
-    def __enter__(self):
-        return self.page
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.context.close()
-        self.browser.close()
-        self.playwright.stop()
-
-class BaseScraper:
-    def __init__(self, excel_manager: ExcelManager, vehicle_type: str):
-        self.excel = excel_manager
-        self.vehicle_type = vehicle_type
-        self.sheet = self.excel.get_sheet(vehicle_type)
-
-    def process_make(self, make: str, years: List[str], selected_years: List[str]):
-        raise NotImplementedError
-
-    @staticmethod
-    def read_csv(file_path: str) -> List[Tuple[str, List[str]]]:
-        makes = []
-        with open(file_path, "r", encoding="utf-8") as f:
-            reader = csv.reader(f)
-            next(reader)  # Skip header
-            for row in reader:
-                makes.append((row[0], row[1].split(", ")))
-        return makes
-
-class CarScraper(BaseScraper):
-    def process_make(self, make: str, years: List[str], selected_years: List[str]):
-        for year in selected_years:
-            if year not in years:
-                continue
-            with BrowserManager() as page:
-                self._process_year(make, year, page)
-
-    def _process_year(self, make: str, year: str, page: Page):
-        url = CONFIG["base_urls"]["cars"].format(year=year, make=make.lower().replace(' ', '-').replace('/', '-'))
-        page.goto(url, timeout=60000)
-        time.sleep(5)
-        
-        model_elements = page.query_selector_all(".yearMake_model-wrapper-h3__npC2B h3")
-        for model_element in model_elements:
-            model_name = model_element.inner_text().strip()
-            print(f"Fetching trims for model: {model_name}...")
-            self._process_model(page, model_element, year, make, model_name)
-
-
-    def _process_model(self, page: Page, model_element, year: str, make: str, model_name: str):
-        model_url = model_element.evaluate("node => node.closest('.yearMake_model-wrapper__t8GAv').querySelector('a').href")
-        
-        with page.context.expect_page() as new_tab_info:
-            page.evaluate(f"window.open('{model_url}', '_blank')")
-        new_tab = new_tab_info.value
-        
+def validate_workbook():
+    """Validate or create a new workbook."""
+    if os.path.exists(output_xlsx):
         try:
-            new_tab.wait_for_selector(".trimSelection_card-info__O02As", timeout=30000)
-            trim_containers = new_tab.query_selector_all(
-                ".MuiGrid-root.MuiGrid-item.MuiGrid-grid-xs-12.MuiGrid-grid-md-6.trimSelection_card-info__O02As"
-            )
-            
-            for trim_container in trim_containers:
-                # Locate the trim name header
-                trim_name_element = trim_container.query_selector("h3.heading-xs.title.spacing-s")
-                #model_name = trim_name_element.inner_text().strip() if trim_name_element else "Unknown Model"
+            return load_workbook(output_xlsx)
+        except Exception as e:
+            print(f"Error loading workbook: {e}. Creating a new workbook.")
+            #os.remove(output_xlsx)
+    return Workbook()
 
-                # Locate all trims under the model
-                trim_links = trim_container.query_selector_all(
-                    ".MuiGrid-root.MuiGrid-item.MuiGrid-grid-xs-12.MuiGrid-grid-sm-12.MuiGrid-grid-md-12 a"
-                )
-                for trim_link in trim_links:
-                    trim_name = trim_link.inner_text().strip()
-                    print(year, "cars", make, model_name, trim_name)
 
-                    self.sheet.append([year, "cars", make, model_name, trim_name])
-                    self.excel.save()
-                
-        finally:
-            new_tab.close()
+def fetch_data(selected_years, selected_types):
+    workbook = validate_workbook()
 
-class RVScraper(BaseScraper):
-    def process_make(self, make: str, years: List[str], selected_years: List[str]):
-        for year in selected_years:
-            if year not in years:
-                continue
-            with BrowserManager() as page:
-                self._process_year(make, year, page)
 
-    def _process_year(self, make: str, year: str, page: Page):
-        url = CONFIG["base_urls"]["rvs"].format(year=year, make=make.lower())
-        page.goto(url, timeout=60000)
-        
-        # Wait for main content container
-        if page.wait_for_selector("main.content", timeout=15000):
-            # Wait for either the model table or no-results message
-            model_table = page.wait_for_selector("table.table-enhanced--model-years", timeout=15000)
-            no_results = page.query_selector(".no-results")
-            
-            if model_table:
-                rows = model_table.query_selector_all("tr")
-                current_model = None
-                consecutive_tr_count = 0
+    sheet_map = {}
 
-                for row in rows:
-                    # Handle model headers
-                    if row.get_attribute("class") == "detail-row":
-                        if current_model:
-                            trim_element = row.query_selector("td a")
-                            if trim_element:
-                                trim_name = trim_element.inner_text().strip()
-                                print(year, "rvs", make, current_model, trim_name)
+    # Initialize sheets for each selected vehicle type if not already present
+    for vehicle_type in selected_types:
+        if vehicle_type.capitalize() in workbook.sheetnames:
+            sheet = workbook[vehicle_type.capitalize()]
+        else:
+            sheet = workbook.create_sheet(title=vehicle_type.capitalize())
+            sheet.append(headers[vehicle_type])  # Add header if sheet is new
+        sheet_map[vehicle_type] = sheet
 
-                                self.sheet.append([year, "rvs", make, current_model, trim_name])
-                                self.excel.save()
-                        continue
-                    
-                    th_header = row.query_selector("th h3.category")
-                    if th_header:
-                        current_model = th_header.inner_text().strip()
-                        continue
-
-                    td_header = row.query_selector("td[colspan='6'] h4")
-                    if td_header:
-                        current_model = td_header.inner_text().strip()
-
-class BoatScraper(BaseScraper):
-    def process_make(self, make: str, years: List[str], selected_years: List[str]):
-        for year in selected_years:
-            if year not in years:
-                continue
-            with BrowserManager() as page:
-                self._process_year(make, year, page)
-
-    def _process_year(self, make: str, year: str, page: Page):
-        url = CONFIG["base_urls"]["boats"].format(year=year, make=make.lower())
-        page.goto(url, timeout=60000)
-        
-        if page.wait_for_selector(".MuiGrid-container", timeout=15000):
-            grid_items = page.query_selector_all(".MuiGrid-container .MuiGrid-item")
-            
-            for item in grid_items:
-                columns = item.query_selector_all(".MuiGrid-item")
-                if len(columns) == len(CONFIG["headers"]["boats"]) - 3:  # Exclude fixed columns
-                    boat_data = [
-                        year,
-                        "boats",
-                        make,
-                        *[col.inner_text().strip() for col in columns]
-                    ]
-                    print(boat_data)
-                    self.sheet.append(boat_data)
-                    self.excel.save()
-
-class MotorcycleScraper(BaseScraper):
-    def process_make(self, make: str, years: List[str], selected_years: List[str]):
-        for year in selected_years:
-            if year not in years:
-                continue
-            with BrowserManager() as page:
-                self._process_year(make, year, page)
-
-    def _process_year(self, make: str, year: str, page: Page):
-        url = CONFIG["base_urls"]["motorcycles"].format(year=year, make=make.lower())
-        page.goto(url, timeout=60000)
-        
-        if page.wait_for_selector(".yearMakeModels_models-container__P4Lb2", timeout=15000):
-            sections = page.query_selector_all(".yearMakeModels_models-container__P4Lb2 > div")
-            
-            for section in sections:
-                model_element = section.query_selector("h4.bh-l")
-                if model_element:
-                    model_name = model_element.inner_text().strip()
-                    trim_links = section.query_selector_all("a.motorcyclesYearMake_model-link__Db22K")
-                    
-                    for link in trim_links:
-                        trim_name = link.inner_text().strip()
-                        print(year, "motorcycles", make, model_name, trim_name)
-                        self.sheet.append([year, "motorcycles", make, model_name, trim_name])
-                        self.excel.save()
-
-class RVScraper(BaseScraper):
-    def process_make(self, make: str, years: List[str], selected_years: List[str]):
-        for year in selected_years:
-            if year not in years:
-                continue
-            with BrowserManager() as page:
-                self._process_year(make, year, page)
-
-    def _process_year(self, make: str, year: str, page: Page):
-        url = CONFIG["base_urls"]["rvs"].format(year=year, make=make.lower())
-        page.goto(url, timeout=60000)
-        
-        # Wait for main content container
-        if page.wait_for_selector("main.content", timeout=15000):
-            # Wait for either the model table or no-results message
-            model_table = page.wait_for_selector("table.table-enhanced--model-years", timeout=15000)
-            no_results = page.query_selector(".no-results")
-            
-            if model_table:
-                rows = model_table.query_selector_all("tr")
-                current_model = None
-                consecutive_tr_count = 0
-
-                for row in rows:
-                    # Handle model headers
-                    if row.get_attribute("class") == "detail-row":
-                        if current_model:
-                            trim_element = row.query_selector("td a")
-                            if trim_element:
-                                trim_name = trim_element.inner_text().strip()
-                                self.sheet.append([year, "rvs", make, current_model, trim_name])
-                                self.excel.save()
-                        continue
-                    
-                    th_header = row.query_selector("th h3.category")
-                    if th_header:
-                        current_model = th_header.inner_text().strip()
-                        continue
-
-                    td_header = row.query_selector("td[colspan='6'] h4")
-                    if td_header:
-                        current_model = td_header.inner_text().strip()
-
-class BoatScraper(BaseScraper):
-    def process_make(self, make: str, years: List[str], selected_years: List[str]):
-        for year in selected_years:
-            if year not in years:
-                continue
-            with BrowserManager() as page:
-                self._process_year(make, year, page)
-
-    def _process_year(self, make: str, year: str, page: Page):
-        url = CONFIG["base_urls"]["boats"].format(year=year, make=make.lower())
-        page.goto(url, timeout=60000)
-        
-        if page.wait_for_selector(".MuiGrid-container", timeout=15000):
-            grid_items = page.query_selector_all(".MuiGrid-container .MuiGrid-item")
-            
-            for item in grid_items:
-                columns = item.query_selector_all(".MuiGrid-item")
-                if len(columns) == len(CONFIG["headers"]["boats"]) - 3:  # Exclude fixed columns
-                    boat_data = [
-                        year,
-                        "boats",
-                        make,
-                        *[col.inner_text().strip() for col in columns]
-                    ]
-                    self.sheet.append(boat_data)
-                    self.excel.save()
-
-class MotorcycleScraper(BaseScraper):
-    def process_make(self, make: str, years: List[str], selected_years: List[str]):
-        for year in selected_years:
-            if year not in years:
-                continue
-            with BrowserManager() as page:
-                self._process_year(make, year, page)
-
-    def _process_year(self, make: str, year: str, page: Page):
-        url = CONFIG["base_urls"]["motorcycles"].format(year=year, make=make.lower())
-        page.goto(url, timeout=60000)
-        
-        if page.wait_for_selector(".yearMakeModels_models-container__P4Lb2", timeout=15000):
-            sections = page.query_selector_all(".yearMakeModels_models-container__P4Lb2 > div")
-            
-            for section in sections:
-                model_element = section.query_selector("h4.bh-l")
-                if model_element:
-                    model_name = model_element.inner_text().strip()
-                    trim_links = section.query_selector_all("a.motorcyclesYearMake_model-link__Db22K")
-                    
-                    for link in trim_links:
-                        trim_name = link.inner_text().strip()
-                        self.sheet.append([year, "motorcycles", make, model_name, trim_name])
-                        self.excel.save()
-def parse_arguments():
-    parser = argparse.ArgumentParser(description="Scrape vehicle data from JDPower.")
-    parser.add_argument("--years", type=str, required=True, help="Year or year range")
-    parser.add_argument("-c", action="store_true", help="Process cars")
-    parser.add_argument("-r", action="store_true", help="Process RVs")
-    parser.add_argument("-b", action="store_true", help="Process boats")
-    parser.add_argument("-m", action="store_true", help="Process motorcycles")
-    parser.add_argument("-all", action="store_true", help="Process all vehicle types")
-    return parser.parse_args()
-
-def process_arguments(args) -> Tuple[List[str], List[str]]:
-    if "-" in args.years:
-        start, end = map(int, args.years.split("-"))
-        years = list(map(str, range(start, end + 1)))
-    else:
-        years = [args.years]
-    
-    types = []
-    if args.all:
-        types = ["cars", "rvs", "boats", "motorcycles"]
-    else:
-        if args.c: types.append("cars")
-        if args.r: types.append("rvs")
-        if args.b: types.append("boats")
-        if args.m: types.append("motorcycles")
-    
-    if not types:
-        print("No vehicle types selected!")
-        sys.exit(1)
-    
-    return years, types
-
-def main():
-    args = parse_arguments()
-    selected_years, selected_types = process_arguments(args)
-    
-    checkpoint = CheckpointManager()
-    excel_manager = ExcelManager(CONFIG["output_file"])
-    
-    scraper_map = {
-        "cars": CarScraper(excel_manager, "cars"),
-        "rvs": RVScraper(excel_manager, "rvs"),
-        "boats": BoatScraper(excel_manager, "boats"),
-        "motorcycles": MotorcycleScraper(excel_manager, "motorcycles")
-    }
-    
-    try:
+    with sync_playwright() as p:
+        # Iterate through each vehicle type
         for vehicle_type in selected_types:
-            scraper = scraper_map[vehicle_type]
-            makes = scraper.read_csv(CONFIG["input_files"][vehicle_type])
-            
-            for make, years in makes:
-                try:
+            input_csv = input_csv_files[vehicle_type]
+
+            print(f"Processing {vehicle_type} from {input_csv}...")
+            # Read the corresponding input CSV
+            with open(input_csv, mode="r", encoding="utf-8") as input_file:
+                reader = csv.reader(input_file)
+                next(reader)  # Skip the header row
+
+                for row in reader:
+                    make = row[0].replace(' ', '-').replace('/', '-')
+                    years = row[1].split(", ")  # Split available years
+
+                    # Check if the make matches the selected years
+                    if not any(year in years for year in selected_years):
+                        continue
+
+                    print(f"Processing {make} for years {selected_years} ({vehicle_type})...")
+
+                    # Construct the URL for the make
                     for year in selected_years:
-                        if year not in years or not checkpoint.should_process(vehicle_type, make, year):
-                            continue
-                        
-                        retries = 3
-                        while retries > 0:
+                        make_url = base_urls[vehicle_type].format(year=year, make=make.lower())
+                        count = 0
+                        while True:
                             try:
-                                scraper.process_make(make, years, [year])
-                                checkpoint.update_progress(vehicle_type, make, year)
+
+                                # Launch Firefox with stealth mode
+                                browser = p.firefox.launch(
+                                    headless=True
+                                )
+                                context = browser.new_context(ignore_https_errors=True)
+                                page = context.new_page()
+                                #stealth_sync(page)
+
+                                print(make_url)
+
+                                page.goto(make_url, timeout=60000)
+                                time.sleep(5)
+                                # Wait for the page to load completely
+                                break
+                            except:
+                                print('retrying..closing browsers')
+                                browser.close()
+                                continue
+
+                        while True:
+                            try:
+                                if vehicle_type == "rvs":
+                                    # Wait for the RV table to load
+                                    page.wait_for_selector("table.table-enhanced--model-years", timeout=30000)
+
+                                    rows = page.query_selector_all("table.table-enhanced--model-years tr")
+                                    current_model = None
+                                    consecutive_tr_count = 0
+
+                                    for row in rows:
+                                        # Handle consecutive <tr> tags for models
+                                        if not row.get_attribute("class"):
+                                            consecutive_tr_count += 1
+                                            if consecutive_tr_count == 2:  # Second consecutive <tr> is the model
+                                                model_header = row.query_selector("td[colspan='6'] h4")
+                                                if model_header:
+                                                    current_model = model_header.inner_text().strip()
+                                                    print(f"Found model (from consecutive <tr>): {current_model}")
+                                                consecutive_tr_count = 0
+                                            continue
+                                        else:
+                                            consecutive_tr_count = 0
+
+                                        # Check for <th> headers as models
+                                        th_header = row.query_selector("th h3.category")
+                                        if th_header:
+                                            current_model = th_header.inner_text().strip()
+                                            print(f"Found model (from <th>): {current_model}")
+                                            continue
+
+                                        # Check if the row defines a trim
+                                        if row.get_attribute("class") == "detail-row":
+                                            trim_element = row.query_selector("td a")
+                                            if trim_element and current_model:
+                                                trim_name = trim_element.inner_text().strip()
+                                                print(f"Found trim: {trim_name} for model: {current_model}")
+                                                # Append to the XLSX sheet
+                                                sheet_map[vehicle_type].append(
+                                                    [year, vehicle_type, make, current_model, trim_name]
+                                                )
+                                                workbook.save(output_xlsx)  # Save the workbook after every row
+                                elif vehicle_type == "cars":
+                                    # General handling for cars
+                                    #page.wait_for_selector(".yearMake_model-wrapper__t8GAv", timeout=30000)
+
+                                    # Get all model names
+                                    model_elements = page.query_selector_all(".yearMake_model-wrapper-h3__npC2B h3")
+                                    for model_element in model_elements:
+                                        model_name = model_element.inner_text().strip()
+                                        print(f"Fetching trims for model: {model_name} ({vehicle_type})...")
+                                        
+                                        
+                                        while True:
+                                            with context.expect_page() as new_tab_event:
+                                                model_url = model_element.evaluate(
+                                                    "node => node.closest('.yearMake_model-wrapper__t8GAv').querySelector('a').href"
+                                                )
+                                                page.evaluate(f"window.open('{model_url}', '_blank')")
+
+                                            new_tab = new_tab_event.value
+                                            new_tab.wait_for_load_state()
+                                            try:
+                                                # Wait for the trims section to load
+                                                new_tab.wait_for_selector(".trimSelection_card-info__O02As", timeout=30000)
+
+                                                # Locate all trim containers
+                                                trim_containers = new_tab.query_selector_all(
+                                                    ".MuiGrid-root.MuiGrid-item.MuiGrid-grid-xs-12.MuiGrid-grid-md-6.trimSelection_card-info__O02As"
+                                                )
+
+                                                for trim_container in trim_containers:
+                                                    # Locate the trim name header
+                                                    trim_name_element = trim_container.query_selector("h3.heading-xs.title.spacing-s")
+                                                    model_name = trim_name_element.inner_text().strip() if trim_name_element else "Unknown Model"
+
+                                                    # Locate all trims under the model
+                                                    trim_links = trim_container.query_selector_all(
+                                                        ".MuiGrid-root.MuiGrid-item.MuiGrid-grid-xs-12.MuiGrid-grid-sm-12.MuiGrid-grid-md-12 a"
+                                                    )
+
+                                                    for trim_link in trim_links:
+                                                        trim_name = trim_link.inner_text().strip()
+                                                        print(f"Model: {model_name}, Trim: {trim_name}")                                                        
+                                                        # Append to the XLSX sheet
+                                                        sheet_map[vehicle_type].append([year, vehicle_type, make, model_name, trim_name])
+
+                                                        # Save the workbook after each trim
+                                                        workbook.save(output_xlsx)
+
+                                            except Exception as e:
+                                                print(f"Error while processing trims: {e}")
+                                                print('Retrying')
+                                                new_tab.close()
+                                                continue
+
+                                            finally:
+                                                # Close the new tab and return to the main page
+                                                new_tab.close()
+                                                break
+
+
+
+                                # Handling for boats
+                                elif vehicle_type == "boats":
+                                    page.wait_for_selector(".MuiGrid-container", timeout=30000)
+                                    rows = page.query_selector_all(".MuiGrid-item")
+                                    count = 0
+                                    for row in rows:
+                                        
+                                        columns = row.query_selector_all(".MuiGrid-item")
+
+                                        # Ensure the number of columns matches the expected structure (excluding Year, Vehicle Type, and Make)
+                                        if len(columns) == len(headers[vehicle_type]) - 3:  # Subtract 3 for Year, Vehicle Type, and Make
+                                            count +=1
+                                            # Extract the data for the boat
+                                            boat_data = [col.inner_text().strip() for col in columns]
+
+                                            # Prepend Year, Vehicle Type, and Make
+                                            boat_data.insert(0, make)
+                                            boat_data.insert(0, vehicle_type)
+                                            boat_data.insert(0, year)
+                                            
+                                            
+                                            if count == 1:
+                                                count+=1
+                                                continue
+
+                                            # Append the row to the sheet
+                                            sheet_map[vehicle_type].append(boat_data)
+
+                                            # Save the workbook after each row
+                                            workbook.save(output_xlsx)
+                                            print(f"Appended for boats: {boat_data}")
+
+
+                                # Handling for motorcycles
+                                elif vehicle_type == "motorcycles":
+                                    page.wait_for_selector(".spacing-xs h3.heading-s", timeout=30000)
+                                    sections = page.query_selector_all(".spacing-xs + .spacing-s")  # Select the second `.spacing-s` div
+
+                                    for section in sections:
+                                        model_element = section.query_selector("h4.bh-l")
+                                        if not model_element:
+                                            continue
+
+                                        model_name = model_element.inner_text().strip()
+                                        print(f"Processing model: {model_name}")
+
+                                        # Fetch trims under the current model
+                                        trims = section.query_selector_all(
+                                            ".motorcyclesYearMake_model-link-container__JIYG4 a.motorcyclesYearMake_model-link__Db22K"
+                                        )
+
+                                        for trim_element in trims:
+                                            trim_name = trim_element.inner_text().strip()
+                                            print(f"Found trim: {trim_name} for model: {model_name}")
+                                            # Append the data to the corresponding sheet
+                                            rev = ''
+                                            if vehicle_type in sheet_map:
+                                                sheet_map[vehicle_type].append(
+                                                    [year, vehicle_type, make, model_name, trim_name]
+                                                )
+                                                workbook[vehicle_type.capitalize()].append(
+                                                    [year, vehicle_type, make, model_name, trim_name]
+                                                )
+                                                workbook.save(output_xlsx)  # Save after every row
+
                                 break
                             except Exception as e:
-                                retries -= 1
-                                if retries == 0:
-                                    raise
-                                print(f"Retrying {vehicle_type}/{make}/{year} ({retries} left)...")
-                                time.sleep(60)  # Wait before retrying
-                                
-                except Exception as e:
-                    ErrorHandler.handle_error(
-                        checkpoint, e,
-                        context=f"{vehicle_type}/{make}"
-                    )
-                    continue  # Continue with next make
-    
-    except KeyboardInterrupt:
-        print("\nKeyboard interrupt received. Saving checkpoint...")
-        checkpoint.save()
-        sys.exit(0)
-        
-    except Exception as e:
-        ErrorHandler.handle_error(checkpoint, e)
+                                print(f"Error processing {make} ({vehicle_type}): {e}")
+                                continue
+
+        browser.close()
+
+    print(f"Data saved to {output_xlsx}.")
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(description="Scrape vehicle data from JDPower.")
+    parser.add_argument(
+        "--years",
+        type=str,
+        required=True,
+        help="Specify a single year (e.g., 2025) or a range of years (e.g., 2020-2025).",
+    )
+    parser.add_argument("-c", action="store_true", help="Process data for cars")
+    parser.add_argument("-r", action="store_true", help="Process data for RVs")
+    parser.add_argument("-b", action="store_true", help="Process data for boats")
+    parser.add_argument("-m", action="store_true", help="Process data for motorcycles")
+    parser.add_argument("-all", action="store_true", help="Process data for all vehicle types")
+
+    args = parser.parse_args()
+
+    if "-" in args.years:
+        start_year, end_year = map(int, args.years.split("-"))
+        selected_years = list(map(str, range(start_year, end_year + 1)))
+    else:
+        selected_years = [args.years]
+
+    selected_types = []
+    if args.all:  # If -all is specified, process all vehicle types
+        selected_types = ["cars", "rvs", "boats", "motorcycles"]
+    else:
+        if args.c:
+            selected_types.append("cars")
+        if args.r:
+            selected_types.append("rvs")
+        if args.b:
+            selected_types.append("boats")
+        if args.m:
+            selected_types.append("motorcycles")
+
+    if not selected_types:
+        print("No vehicle types selected. Use -c, -r, -b, -m, or -all.")
         sys.exit(1)
 
+    return selected_years, selected_types
+
+
 if __name__ == "__main__":
-    main()
+    selected_years, selected_types = parse_arguments()
+    fetch_data(selected_years, selected_types)
