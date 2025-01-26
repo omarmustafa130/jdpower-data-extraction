@@ -178,6 +178,7 @@ class BrowserManager:
         self.browser.close()
         self.playwright.stop()
 
+
 class BaseScraper:
     def __init__(self, excel_manager: ExcelManager, vehicle_type: str):
         self.excel = excel_manager
@@ -228,6 +229,14 @@ class CarScraper(BaseScraper):
         new_tab = new_tab_info.value
         
         try:
+            invalid_headers = new_tab.query_selector_all('h1, h2, h3')
+            for header in invalid_headers:
+                if 'undefined undefined' in header.inner_text().lower():
+                    print(f"Skipping model {model_name} due to undefined references in header")
+                    new_tab.close()
+                    self.sheet.append([year, "cars", make, model_name, ''])
+                    self.excel.save()
+                    return
             new_tab.wait_for_selector(".trimSelection_card-info__O02As", timeout=60000)
             trim_containers = new_tab.query_selector_all(
                 ".MuiGrid-root.MuiGrid-item.MuiGrid-grid-xs-12.MuiGrid-grid-md-6.trimSelection_card-info__O02As"
@@ -296,6 +305,14 @@ class RVScraper(BaseScraper):
                 continue
 
             # Check if the row defines a trim
+            invalid_headers = page.query_selector_all('h1, h2, h3')
+            for header in invalid_headers:
+                if 'undefined undefined' in header.inner_text().lower():
+                    print(f"Skipping model {current_model} due to undefined references in header")
+                    page.close()
+                    self.sheet.append([year, "rv", make, current_model, ''])
+                    self.excel.save()
+                    return
             if row.get_attribute("class") == "detail-row":
                 trim_element = row.query_selector("td a")
                 if trim_element and current_model:
@@ -321,7 +338,14 @@ class BoatScraper(BaseScraper):
         print(f"Processing URL: {url}")
 
         page.goto(url, timeout=60000)
-        
+        invalid_headers = page.query_selector_all('h1, h2, h3')
+        for header in invalid_headers:
+            if 'undefined undefined' in header.inner_text().lower():
+                print(f"Skipping model {model} due to undefined references in header")
+                page.close()
+                self.sheet.append([year, "boat", make, model, ''])
+                self.excel.save()
+                return
         # Wait for the main content container
         if page.wait_for_selector(".MuiGrid-container", timeout=15000):
             # Extract all rows with complete data
@@ -365,7 +389,14 @@ class MotorcycleScraper(BaseScraper):
         
         page.wait_for_selector(".spacing-xs h3.heading-s", timeout=60000)
         sections = page.query_selector_all(".spacing-xs + .spacing-s")  # Select the second `.spacing-s` div
-
+        invalid_headers = page.query_selector_all('h1, h2, h3')
+        for header in invalid_headers:
+            if 'undefined undefined' in header.inner_text().lower():
+                print(f"Skipping model {model_name} due to undefined references in header")
+                page.close()
+                self.sheet.append([year, "motorcycle", make, model_name, ''])
+                self.excel.save()
+                return
         for section in sections:
             model_element = section.query_selector("h4.bh-l")
             if not model_element:
@@ -382,7 +413,7 @@ class MotorcycleScraper(BaseScraper):
             for trim_element in trims:
                 trim_name = trim_element.inner_text().strip()
                 print(f"Found trim: {trim_name} for model: {model_name}")
-                self.sheet.append([year, "motorcycles", make, model_name, trim_name])
+                self.sheet.append([year, "motorcycle", make, model_name, trim_name])
                 self.excel.save()
 
 
@@ -434,6 +465,7 @@ def main():
     last_clean_time = time.time()  # Initialize cleaning timer
     
     try:
+        count_of_failures = 0
         for vehicle_type in selected_types:
             scraper = scraper_map[vehicle_type]
             makes = scraper.read_csv(CONFIG["input_files"][vehicle_type])
@@ -452,6 +484,11 @@ def main():
                                 break
                             except Exception as e:
                                 retries -= 1
+                                count_of_failures +=1
+                                if count_of_failures == 20:
+                                    print("Reached 20 failures, exiting after 5 mins with restart code")
+                                    time.sleep(300)  # Wait before retrying
+                                    sys.exit(100)  # Use a special exit code for restart
                                 if retries == 0:
                                     raise
                                 print(f"Retrying {vehicle_type}/{make}/{year} ({retries} left)...")

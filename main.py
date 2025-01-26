@@ -1,5 +1,6 @@
 import subprocess
 import sys
+import time
 
 def setup_environment():
     """Install necessary libraries and set up the environment."""
@@ -12,15 +13,34 @@ def setup_environment():
         print(f"Error during setup: {e}")
 
 def run_script(script_name, *args):
-    """Run a specific script with optional arguments."""
-    try:
-        print(f"Running {script_name}...")
-        command = [sys.executable, script_name] + list(args)
-        subprocess.check_call(command)
-    except FileNotFoundError:
-        print(f"Error: `{script_name}` not found. Ensure the script exists in the same directory.")
-    except Exception as e:
-        print(f"Error while running {script_name}: {e}")
+    """Run a specific script with optional arguments, returns True if restart requested"""
+    max_restarts = 3  # Maximum number of automatic restarts
+    restarts = 0
+    
+    while restarts <= max_restarts:
+        try:
+            print(f"Running {script_name}...")
+            command = [sys.executable, script_name] + list(args)
+            result = subprocess.run(command)
+            
+            if result.returncode == 100:  # Our special restart code
+                print("\nRestarting script due to failure threshold...")
+                restarts += 1
+                time.sleep(5)  # Wait before restarting
+                continue
+                
+            return True  # Completed successfully
+            
+        except FileNotFoundError:
+            print(f"Error: `{script_name}` not found.")
+            return False
+        except Exception as e:
+            print(f"Error while running {script_name}: {e}")
+            return False
+            
+    print(f"Maximum restarts ({max_restarts}) reached. Aborting.")
+    return False
+
 
 def ask_vehicle_types():
     """Prompt user to select vehicle types."""
