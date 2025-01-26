@@ -270,59 +270,86 @@ class RVScraper(BaseScraper):
                 self._process_year(make, year, page)
 
     def _process_year(self, make: str, year: str, page: Page):
-        sanitized_make = sanitize_make(make)  # Sanitize the make
+        sanitized_make = sanitize_make(make)
         url = CONFIG["base_urls"]["rvs"].format(year=year, make=sanitized_make)
-        print(url)
-
-        page.goto(url, timeout=60000)
+        print(f"Processing: {url}")
         
-        # Wait for the RV table to load
-        page.wait_for_selector("table.table-enhanced--model-years", timeout=60000)
-
-        rows = page.query_selector_all("table.table-enhanced--model-years tr")
-        current_model = None
-        consecutive_tr_count = 0
-
-        for row in rows:
-            # Handle consecutive <tr> tags for models
-            if not row.get_attribute("class"):
-                consecutive_tr_count += 1
-                if consecutive_tr_count == 2:  # Second consecutive <tr> is the model
-                    model_header = row.query_selector("td[colspan='6'] h4")
-                    if model_header:
-                        current_model = model_header.inner_text().strip()
-                        print(f"Found model (from consecutive <tr>): {current_model}")
-                    consecutive_tr_count = 0
-                continue
-            else:
-                consecutive_tr_count = 0
-
-            # Check for <th> headers as models
-            th_header = row.query_selector("th h3.category")
-            if th_header:
-                current_model = th_header.inner_text().strip()
-                print(f"Found model (from <th>): {current_model}")
-                continue
-
-            # Check if the row defines a trim
-            invalid_headers = page.query_selector_all('h1, h2, h3')
-            for header in invalid_headers:
-                if 'undefined undefined' in header.inner_text().lower():
-                    print(f"Skipping model {current_model} due to undefined references in header")
-                    page.close()
-                    self.sheet.append([year, "rv", make, current_model, ''])
-                    self.excel.save()
-                    return
-            if row.get_attribute("class") == "detail-row":
-                trim_element = row.query_selector("td a")
-                if trim_element and current_model:
-                    trim_name = trim_element.inner_text().strip()
-                    print(f"Found trim: {trim_name} for model: {current_model}")
-                    # Append to the XLSX sheet
-                    print(year, "rvs", make, current_model, trim_name)
-
-                    self.sheet.append([year, "rvs", make, current_model, trim_name])
-                    self.excel.save()
+        try:
+            page.goto(url, timeout=60000)
+            page.wait_for_selector("table.table-enhanced--model-years", timeout=30000)
+            
+            tables = page.query_selector_all("table.table-enhanced--model-years")
+            
+            for table in tables:
+                current_model = None
+                headers = []
+                
+                rows = table.query_selector_all("tbody tr")
+                
+                for row in rows:
+                    # Handle model headers
+                    if row.query_selector("td[colspan] h4"):
+                        current_model = row.query_selector("h4").inner_text().strip()
+                        print(f"Found model: {current_model}")
+                        continue
+                        
+                    # Handle column headers
+                    if row.query_selector("th h3.category"):
+                        headers = [
+                            th.query_selector("h5").inner_text().replace("\n", " ").strip()
+                            for th in row.query_selector_all("th")
+                            if th.query_selector("h5")
+                        ]
+                        if "Model" not in headers:
+                            headers.insert(0, "Model")
+                        print(f"Detected headers: {headers}")
+                        continue
+                    
+                    # Process data rows - FIXED CLASS CHECK
+                    row_class = row.get_attribute("class") or ""
+                    if "detail-row" in row_class:
+                        columns = row.query_selector_all("td")
+                        if not current_model:
+                            current_model = make  # Fallback to make name
+                        
+                        try:
+                            model_trim = columns[0].inner_text().strip()
+                        except IndexError:
+                            continue
+                            
+                        row_data = {"Model": model_trim}
+                        
+                        for idx, header in enumerate(headers[1:], start=1):
+                            try:
+                                row_data[header] = columns[idx].inner_text().strip()
+                            except (IndexError, AttributeError):
+                                row_data[header] = "N/A"
+                        
+                        output = [
+                            year,
+                            "rvs",
+                            make,
+                            current_model,
+                            row_data.get("Model", "N/A"),
+                            row_data.get("Length", "N/A"),
+                            row_data.get("Width", "N/A"), 
+                            row_data.get("Coach Design", "N/A"),
+                            row_data.get("Axle(s)", "N/A"),
+                            row_data.get("Weight (lbs)", "N/A"),
+                            row_data.get("Self Cont.", "N/A"),
+                            row_data.get("Slides", "N/A"),
+                            row_data.get("Floor Plan", "N/A")
+                        ]
+                        
+                        cleaned_output = [str(item) if item else "N/A" for item in output]
+                        
+                        self.sheet.append(cleaned_output)
+                        self.excel.save()
+                        print(f"Added: {cleaned_output}")
+                        
+        except Exception as e:
+            print(f"Error processing {url}: {str(e)}")
+            raise
 
 class BoatScraper(BaseScraper):
     def process_make(self, make: str, years: List[str], selected_years: List[str]):
