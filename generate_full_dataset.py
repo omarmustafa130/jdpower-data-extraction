@@ -192,7 +192,7 @@ class CarScraper(BaseScraper):
         new_tab = new_tab_info.value
         
         try:
-            new_tab.wait_for_selector(".trimSelection_card-info__O02As", timeout=30000)
+            new_tab.wait_for_selector(".trimSelection_card-info__O02As", timeout=60000)
             trim_containers = new_tab.query_selector_all(
                 ".MuiGrid-root.MuiGrid-item.MuiGrid-grid-xs-12.MuiGrid-grid-md-6.trimSelection_card-info__O02As"
             )
@@ -232,7 +232,7 @@ class RVScraper(BaseScraper):
         page.goto(url, timeout=60000)
         
         # Wait for the RV table to load
-        page.wait_for_selector("table.table-enhanced--model-years", timeout=30000)
+        page.wait_for_selector("table.table-enhanced--model-years", timeout=60000)
 
         rows = page.query_selector_all("table.table-enhanced--model-years tr")
         current_model = None
@@ -327,7 +327,7 @@ class MotorcycleScraper(BaseScraper):
         url = CONFIG["base_urls"]["motorcycles"].format(year=year, make=sanitized_make)
         page.goto(url, timeout=60000)
         
-        page.wait_for_selector(".spacing-xs h3.heading-s", timeout=30000)
+        page.wait_for_selector(".spacing-xs h3.heading-s", timeout=60000)
         sections = page.query_selector_all(".spacing-xs + .spacing-s")  # Select the second `.spacing-s` div
 
         for section in sections:
@@ -407,7 +407,7 @@ def main():
                         if year not in years or not checkpoint.should_process(vehicle_type, make, year):
                             continue
                         
-                        retries = 3
+                        retries = 10
                         while retries > 0:
                             try:
                                 scraper.process_make(make, years, [year])
