@@ -110,7 +110,43 @@ class ExcelManager:
                 return load_workbook(self.output_path)
             except Exception as e:
                 print(f"Error loading workbook: {e}. Creating new workbook.")
-        return Workbook()
+        wb = Workbook()
+        # Remove default sheet if present
+        if 'Sheet' in wb.sheetnames:
+            del wb['Sheet']
+        return wb
+
+    def clean_duplicates(self):
+        """Remove duplicate rows across all sheets and ensure no default sheet"""
+        # Remove default sheet if exists
+        if 'Sheet' in self.workbook.sheetnames:
+            del self.workbook['Sheet']
+        
+        for sheet_name in self.workbook.sheetnames:
+            sheet = self.workbook[sheet_name]
+            rows = list(sheet.iter_rows(values_only=True))
+            if not rows:
+                continue  # Skip empty sheets
+            
+            headers = rows[0]
+            seen = set()
+            unique_rows = []
+            
+            for row in rows[1:]:  # Skip header
+                row_tuple = tuple(row)
+                if row_tuple not in seen:
+                    seen.add(row_tuple)
+                    unique_rows.append(row)
+            
+            # Clear existing data
+            sheet.delete_rows(1, sheet.max_row)
+            # Rewrite headers and unique rows
+            sheet.append(headers)
+            for row in unique_rows:
+                sheet.append(row)
+        
+        self.save()
+        print("Successfully cleaned duplicates and removed default sheet.")
 
     def get_sheet(self, vehicle_type: str):
         if vehicle_type not in self.sheets:
@@ -395,6 +431,7 @@ def main():
         "boats": BoatScraper(excel_manager, "boats"),
         "motorcycles": MotorcycleScraper(excel_manager, "motorcycles")
     }
+    last_clean_time = time.time()  # Initialize cleaning timer
     
     try:
         for vehicle_type in selected_types:
@@ -419,7 +456,12 @@ def main():
                                     raise
                                 print(f"Retrying {vehicle_type}/{make}/{year} ({retries} left)...")
                                 time.sleep(60)  # Wait before retrying
-                                
+
+                        # Check if 10 minutes have passed since last clean
+                        if time.time() - last_clean_time >= 600:
+                            print("\nPerforming scheduled cleaning...")
+                            excel_manager.clean_duplicates()
+                            last_clean_time = time.time()        
                 except Exception as e:
                     ErrorHandler.handle_error(
                         checkpoint, e,
