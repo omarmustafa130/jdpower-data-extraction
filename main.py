@@ -49,13 +49,15 @@ def main():
             if vehicle_choice in ["-c", "-r", '-m', '-b', "-all"]:
                 # Split the vehicle_choice into individual flags
                 flags = []
-                if "-c" in vehicle_choice or vehicle_choice == "-all":
+                if vehicle_choice == "-all":
+                    flags.append("-all")
+                if "-c" in vehicle_choice:
                     flags.append("-c")
-                if "-r" in vehicle_choice or vehicle_choice == "-all":
+                if "-r" in vehicle_choice:
                     flags.append("-r")
-                if "-b" in vehicle_choice or vehicle_choice == "-all":
+                if "-b" in vehicle_choice:
                     flags.append("-b")
-                if "-m" in vehicle_choice or vehicle_choice == "-all":
+                if "-m" in vehicle_choice:
                     flags.append("-m")
                 # Run the script with the individual flags
                 run_script("generate_full_dataset.py", "--years", year_input, *flags)

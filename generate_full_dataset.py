@@ -174,7 +174,7 @@ class CarScraper(BaseScraper):
         url = CONFIG["base_urls"]["cars"].format(year=year, make = sanitized_make)
         print(url)
 
-        page.goto(url.replace(' ', '-').replace('/', '-'), timeout=60000)
+        page.goto(url, timeout=60000)
         time.sleep(5)
         
         model_elements = page.query_selector_all(".yearMake_model-wrapper-h3__npC2B h3")
