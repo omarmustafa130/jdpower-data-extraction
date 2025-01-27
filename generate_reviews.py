@@ -29,20 +29,27 @@ def generate_review(year, make, model_name, trim=None, **details):
     model = OllamaLLM(model="deepseek-r1", base_url = "http://127.0.0.1:11434/")
 
     chain = prompt | model
+    spec_lines = []
+    for key, value in details.items():
+        if str(value).lower() not in ["n/a", "unknown", "unknown length", "unknown model type", 
+                                    "unknown hull", "unknown ccs", "unknown engines", 
+                                    "unknown hp", "unknown weight", "unknown fuel type"]:
+            spec_lines.append(f"{key}: {value}")
+    
+    spec_text = "\n".join(spec_lines)
     # Create the prompt based on available details
     print(f"Write a simple (max 150 word) review on {year} {make} {model_name} {trim}.")
-    if trim:
-        result = chain.invoke({"question": f"Write a simple (max 150 word) review on {year} {make} {model_name} {trim}. The review should be similar in structure with the following: The 2023 Acura Integra Sedan 4D offers an excellent balance of style, reliability, and value for its price. With a sleek design that combines modern aesthetics, it captures attention while maintaining comfort and efficiency. Under the hood, it features a 1.5L turbocharged engine delivering impressive power without compromising on fuel economy. Inside, the cabin is comfortable, equipped with supportive seats and a user-friendly infotainment system, making it ideal for daily commutes or casual drives. Its overall value ensures you get high-quality performance at an accessible price point, making it a top choice for those seeking a reliable yet stylish car."})
-        result = result.split('</think>')[1]
-
+    # Add specifications if available
+    if spec_text:
+        base_prompt += f" with these specifications:\n{spec_text}\nThe review should be similar in structure with the following:"
     else:
-        result = chain.invoke({"question": f"Write a simple (max 150 word) review on {year} {make} {model_name}. The review should be similar in structure with the following: The 2023 Acura Integra Sedan 4D offers an excellent balance of style, reliability, and value for its price. With a sleek design that combines modern aesthetics, it captures attention while maintaining comfort and efficiency. Under the hood, it features a 1.5L turbocharged engine delivering impressive power without compromising on fuel economy. Inside, the cabin is comfortable, equipped with supportive seats and a user-friendly infotainment system, making it ideal for daily commutes or casual drives. Its overall value ensures you get high-quality performance at an accessible price point, making it a top choice for those seeking a reliable yet stylish car."})
+        base_prompt += ". The review should be similar in structure with the following:"
 
-    # Filter out N/A or unknown values
-    filtered_details = {k: v for k, v in details.items() if v.lower() not in ["n/a", "unknown", "unknown length", "unknown model type", "unknown hull", "unknown ccs", "unknown engines", "unknown hp", "unknown weight", "unknown fuel type"]}
+    # Example review template
+    example_review = """The 2023 Acura Integra Sedan 4D offers an excellent balance of style, reliability, and value for its price. With a sleek design that combines modern aesthetics, it captures attention while maintaining comfort and efficiency. Under the hood, it features a 1.5L turbocharged engine delivering impressive power without compromising on fuel economy. Inside, the cabin is comfortable, equipped with supportive seats and a user-friendly infotainment system, making it ideal for daily commutes or casual drives. Its overall value ensures you get high-quality performance at an accessible price point, making it a top choice for those seeking a reliable yet stylish car."})"""
 
-
-    return result
+    result = chain.invoke({"question": f"{base_prompt}\n{example_review}"})
+    return result.split('</think>')[1] if '</think>' in result else result
 
 # Function to process sheets based on the selected types
 def process_sheets(selected_sheets):
