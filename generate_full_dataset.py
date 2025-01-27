@@ -567,7 +567,10 @@ def main():
                     )
                     continue  # Continue with next make
         cleanDuplicateHeaders()
-
+        # Delete checkpoint file after successful completion
+        if os.path.exists(checkpoint.checkpoint_file):
+            os.remove(checkpoint.checkpoint_file)
+            print(f"Successfully deleted checkpoint file: {checkpoint.checkpoint_file}")
     except KeyboardInterrupt:
         print("\nKeyboard interrupt received. Saving checkpoint...")
         checkpoint.save()
